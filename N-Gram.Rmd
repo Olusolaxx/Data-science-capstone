@@ -1,0 +1,217 @@
+---
+ title: "N-Gram"
+ output:
+   html_document: 
+    pandoc_args: [
+       "--number-sections",
+     ]
+---
+
+
+<div id = "description"> 
+
+Week 7 Project of the course Data Science Capstone under the course track Data Science
+
+Submitted by **Olusola Afuwape** 
+
+**February 22^nd^, 2020** 
+</div> 
+
+
+```{r data_source, message = FALSE, comment = ""}
+
+# Load packages
+
+library(tm)
+library(stringr)
+library(stringi)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(tidytext)
+library(ngram)
+library(qdap)
+library(NLP)
+
+setwd("C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7")
+
+# File definitions
+Unigram <- "C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7//1gram.rds"
+
+one_unigram <- "C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7//onegram.rds"
+
+Bigram <- "C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7//2gram.rds"
+
+Trigram <- "C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7//3gram.rds"
+
+Trigram2 <- "C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7//3gram2.rds"
+
+Quadgram <- "C://Users//Olusola//Desktop//New foldercourse//Systems//Data Science//Course10 -  Data Science Capstone//Week 7//4gram.rds"
+
+news_file <- "final//en_US//en_US.news.txt"
+twitter_file <- "final//en_US//en_US.twitter.txt"
+
+news_lines <- readLines(file(news_file))
+twitter_lines <- readLines(file(twitter_file))
+
+len_news <- length(news_lines)
+len_twitter <- length(twitter_lines)
+
+set.seed(1375)
+
+News <- c(sample(news_lines, len_news * 0.01, replace = FALSE))
+Twitter <- c(sample(twitter_lines, len_twitter * 0.01, replace = FALSE))
+
+sample_data <- c(News, Twitter)
+```
+
+# Cleanse the sample data
+
+```{r cleansing, message = FALSE, comment = ""}
+
+sample_data <- tolower(sample_data)
+
+
+# split at all ".", "," and etc.
+
+sample_data <- unlist(strsplit(sample_data, "[.,:;!?(){}<>]+"))
+
+
+# replace all non-alphanumeric characters with a space at the beginning/end of a word.
+
+sample_data <- gsub("^[^a-z0-9]+|[^a-z0-9]+$", " ", sample_data) # at the begining/end of a line
+sample_data <- gsub("[^a-z0-9]+\\s", " ", sample_data) # before space
+sample_data <- gsub("\\s[^a-z0-9]+", " ", sample_data) # after space
+sample_data <- gsub("\\s+", " ", sample_data) # remove mutiple spaces
+sample_data <- str_trim(sample_data) # remove spaces at the beginning/end of the line
+
+
+
+sample_data <- unlist(lapply(sample_data, function(sample_data){removeWords(sample_data, stopwords("en"))}))
+sample_data <- str_trim(sample_data) # remove spaces at the beginning/end of the line
+sample_data <- gsub("\\s+", " ", sample_data) # remove mutiple spaces
+sample_data <- sample_data[nchar(sample_data)>0] # remove blank lines.
+
+```
+
+
+
+
+
+#### Tokenization
+
+```{r tokenization, message = FALSE, comment = ""}
+# Unigram
+
+# split words by space
+words <- unlist(strsplit(sample_data, "\\s+"))
+
+# count word frequence
+word.freq <- table(words)
+
+# convert to data frame
+df <- cbind.data.frame(names(word.freq), as.integer(word.freq))
+names(df) <- c('word', 'freq')
+row.names(df) <- df[,1]
+
+# sort words by frequence descending
+df <- df[order(-df$freq),]
+
+# save as RDS file
+saveRDS(df, file=Unigram)
+
+# read word frequence data
+df <- readRDS(file=Unigram)
+# locate "i'm" 
+df["i'm",]
+
+# get 90% coverage 
+df$count <- 1
+df$count <- cumsum(df$count)
+df$coverage <- cumsum(df$freq) / sum(df$freq) * 100
+df$prop <- df$freq / sum(df$freq)
+df_90 <- df[df$coverage <= 91,]
+df_90 <- subset(df_90, select=-c(count, coverage))
+saveRDS(df_90, one_unigram)
+
+# Bigram
+
+# remove lines that contain less than 2 words, or ngram() would throw errors.
+
+sample_data <- sample_data[str_count(sample_data, "\\s+")>0] 
+bigram <- ngram(sample_data, n=2) 
+df <- get.phrasetable(bigram)
+saveRDS(df, Bigram)
+
+# Trigram
+
+# remove lines that contain less than 3 words, or ngram() would throw errors.
+
+sample_data <- sample_data[str_count(sample_data, "\\s+")>1] 
+trigram <- ngram(sample_data, n=3) 
+df <- get.phrasetable(trigram)
+saveRDS(df, Trigram)
+
+df <- readRDS(Trigram)
+
+df_notail <- df[df$freq>1,]
+saveRDS(df_notail, Trigram2)
+
+
+
+# Quadgram
+
+# remove lines that contain less than 4 words, or ngram() would throw errors.
+
+sample_data <- sample_data[str_count(sample_data, "\\s+")>2] 
+quadgram <- ngram(sample_data, n=4) 
+df <- get.phrasetable(quadgram)
+saveRDS(df, Quadgram)
+
+```
+
+#### Term document matrix formation
+
+```{r documentation, message = FALSE, comment = ""}
+
+getFreq <- function(tdm) {
+  freq <- sort(rowSums(as.matrix(tdm)), decreasing = TRUE)
+  return(data.frame(word = names(freq), freq = freq))
+}
+
+trigram <- readRDS("3gram.rds")
+
+text <- ""
+
+text_all <- list()
+
+if (text != ""){
+      # append input to list
+      text_all[length(text_all)+1] <<- str_trim(gsub("\\s+", " ", text))
+      
+      
+      # search 3-gram dictionary
+      # match with two words
+      pred <- head(trigram[grep(paste0("^", str_trim(paste0(text_all[length(text_all)-1], " ",
+                                                            text_all[length(text_all)])), " "), 
+                                trigram[,'ngrams']),], 20)
+      # match with the last word
+      if (length(text_all)>1 & dim(pred)[1]==0){
+        pred <- head(trigram[grep(paste0("^", text_all[length(text_all)], " "), 
+                                  trigram[,'ngrams']),], 20)}
+
+      pred
+
+p01 <- ggplot(data=pred, aes(x=reorder(ngrams, -prob), y=prob)) +
+               geom_bar(stat="identity", fill="grey") +
+               geom_label_repel(aes(label=ngrams), size=4) +
+               labs(title="Predicted 3-gram Probability",
+                    x="", y="Probability") +
+               theme(plot.title=element_text(size=30, face="bold"),
+                     axis.text.x=element_blank(),
+                     axis.text.y=element_text(angle=90))
+        print(p01)
+}    
+```
+
+
